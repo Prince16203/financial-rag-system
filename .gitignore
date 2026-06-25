@@ -1,0 +1,9 @@
+data/raw/
+data/embeddings/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+*.pdf
+venv/
+.venv/
