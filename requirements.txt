@@ -1,6 +1,43 @@
+# ============================================================
+# Financial RAG System — Phase 1 Requirements
+# Python 3.13.1 | Generated for conda env: repo_env
+# Install: pip install -r requirements.txt
+# ============================================================
+
+# --- PDF Parsing ---
 pdfplumber==0.11.4
+
+# --- LangChain core + community integrations ---
 langchain==0.3.25
 langchain-core==0.3.59
 langchain-community==0.3.23
 langchain-text-splitters==0.3.8
+
+# --- Embeddings (HuggingFace / sentence-transformers) ---
+# NOTE: torch is the heaviest install; this pulls CPU-only by default.
+# If you have a GPU, replace with: pip install torch --index-url https://download.pytorch.org/whl/cu121
 sentence-transformers==3.4.1
+huggingface-hub==0.28.1
+transformers==4.49.0
+tokenizers==0.21.0
+
+# --- Vector Store ---
+# chromadb 0.6.x has Python 3.13 wheels; avoid 0.4.x / 0.5.x
+# chromadb==0.6.3
+
+# --- LLM API (Groq) ---
+groq==0.15.0
+langchain-groq==0.3.2
+
+# --- Frontend ---
+streamlit==1.43.2
+
+# --- Environment / config ---
+python-dotenv==1.0.1
+
+# --- Utilities (pulled in by the above, pinned for stability) ---
+numpy==2.2.3
+pydantic==2.10.6
+httpx==0.28.1
+tenacity==9.0.0
+tqdm==4.67.1
