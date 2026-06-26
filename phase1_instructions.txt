@@ -1,0 +1,215 @@
+# Financial Document Intelligence System
+
+## Phase 1
+
+Phase 1 implements a complete local Retrieval-Augmented Generation (RAG) pipeline for querying financial PDF documents using natural language.
+
+The system extracts text from financial PDFs, converts them into semantic embeddings, stores them in ChromaDB, retrieves the most relevant document chunks for a query, and uses Groq's LLaMA model to generate answers grounded in the retrieved context.
+
+---
+
+## Phase 1 Features
+
+### PDF Parsing
+
+* Extract text from financial PDFs
+* Extract tables from PDFs
+* Support multiple documents
+
+### Intelligent Chunking
+
+* Recursive text splitting
+* Configurable chunk size and overlap
+* Table-to-text conversion before chunking
+* Metadata preserved for every chunk
+
+### Local Embeddings
+
+* BAAI/bge-base-en-v1.5 embedding model
+* 768-dimensional embeddings
+* Runs completely locally
+* No embedding API required
+
+### Vector Database
+
+* ChromaDB persistent vector database
+* Stores document embeddings with metadata
+* Safe re-indexing using upsert
+
+### Dense Retrieval
+
+* Semantic search using cosine similarity
+* Returns Top-K relevant chunks
+
+### LLM Answer Generation
+
+* Groq LLaMA 3.1
+* Answers generated only from retrieved document context
+* Designed to minimize hallucinations
+
+### Streamlit Interface
+
+* Interactive chat interface
+* View retrieved document chunks
+* Display similarity scores
+* Conversation history
+
+---
+
+## Phase 1 Pipeline
+
+```
+Financial PDFs
+      │
+      ▼
+PDF Parser
+      │
+      ▼
+Chunk Generator
+      │
+      ▼
+BGE Embedding Model
+      │
+      ▼
+ChromaDB
+      │
+      ▼
+Dense Retriever
+      │
+      ▼
+Groq LLaMA 3.1
+      │
+      ▼
+Streamlit Chat Interface
+```
+
+---
+
+## Project Structure
+
+```
+financial-rag-system/
+
+│
+├── ingestion/
+│   ├── pdf_parser.py
+│   ├── chunker.py
+│   ├── embedder.py
+│   └── indexer.py
+│
+├── retrieval/
+│   └── dense_retriever.py
+│
+├── frontend/
+│   └── app.py
+│
+├── data/
+│   ├── raw_pdfs/
+│   └── chroma_db/
+│
+├── requirements.txt
+├── setup.bat
+└── .env
+```
+
+---
+
+# Running Phase 1
+
+## Step 1 — Clone the repository
+
+```bash
+git clone https://github.com/Prince16203/financial-rag-system
+cd financial-rag-system
+```
+
+---
+
+## Step 2 — Run the setup script
+
+Simply run
+
+```bash
+setup.bat
+```
+
+The setup script will automatically:
+
+* Create a Conda environment (Python 3.13.1)
+* Activate the environment
+* Install all required dependencies
+* Create a `.env` file
+* Prompt you to enter your Groq API key
+* Display the next commands to run
+
+Follow the instructions shown in the terminal after the setup completes.
+
+---
+
+## Step 3 — Add PDFs
+
+Place one or more PDF files inside
+
+```
+data/raw_pdfs/
+```
+
+---
+
+## Step 4 — Build the Vector Database
+
+Run
+
+```bash
+python -m ingestion.indexer
+```
+
+This will:
+
+* Parse all PDFs
+* Create chunks
+* Generate embeddings
+* Store everything in ChromaDB
+
+---
+
+## Step 5 — Launch the Application
+
+Run
+
+```bash
+streamlit run frontend/app.py
+```
+
+The application will open in your browser at
+
+```
+http://localhost:8501
+```
+
+---
+
+## Example Questions
+
+* What is the company's total revenue?
+* Summarize the major business segments.
+* What are the primary risk factors?
+* What capital expenditure was reported?
+* What did management say about future growth?
+
+---
+
+## Tech Stack
+
+* Python
+* Streamlit
+* Groq API
+* ChromaDB
+* Sentence Transformers
+* BAAI/bge-base-en-v1.5
+* pdfplumber
+* LangChain Text Splitter
+
+---
+
+**Phase 1 Status:** ✅ Complete

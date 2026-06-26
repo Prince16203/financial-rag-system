@@ -1,0 +1,32 @@
+# ============================================================
+# Financial RAG System — Phase 1 Requirements
+# Python 3.13.1 | conda env: repo_env
+# Install: pip install -r requirements.txt
+# ============================================================
+
+# --- PDF Parsing ---
+pdfplumber==0.11.4
+
+# --- LangChain (text splitter only — full langchain/langchain-community
+# is NOT used; langchain-community is being sunset by the LangChain team.
+# We only need RecursiveCharacterTextSplitter, which lives here.) ---
+langchain-core==1.4.8
+langchain-text-splitters==1.1.2
+
+# --- Embeddings (sentence-transformers pulls torch + transformers + numpy
+# automatically — DO NOT pin those by hand, let pip resolve 3.13-compatible
+# builds itself. Hand-pinning numpy/torch is what breaks installs on new
+# Python versions.) ---
+sentence-transformers==5.6.0
+
+# --- Vector store (1.5.x is the first line with confirmed cp313 wheels) ---
+chromadb==1.5.9
+
+# --- LLM API (Groq) ---
+groq==1.1.2
+
+# --- Frontend ---
+streamlit==1.58.0
+
+# --- Environment / config ---
+python-dotenv==1.0.1
