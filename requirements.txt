@@ -30,3 +30,7 @@ streamlit==1.58.0
 
 # --- Environment / config ---
 python-dotenv==1.0.1
+
+rank-bm25
+cohere
+langchain-cohere
