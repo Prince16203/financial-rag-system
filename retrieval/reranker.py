@@ -20,97 +20,62 @@ Usage:
 
     reranker = Reranker()
     results  = reranker.rerank(query, hybrid_results, top_n=5)
+
+Re-scores hybrid retrieval results using Cohere's rerank API.
+Degrades to pass-through (no crash) if the API key is missing or the call fails.
 """
 
 import logging
-import os
 from typing import Optional
 
-import cohere
-from dotenv import load_dotenv
+import config
 
-load_dotenv()
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
-
-# Cohere's best reranking model
-RERANK_MODEL = "rerank-english-v3.0"
 
 
 class Reranker:
-    """
-    Cohere-based reranker for financial document chunks.
+    def __init__(self, model: str = None, api_key: Optional[str] = None):
+        self.model = model or config.COHERE_RERANK_MODEL
+        self.api_key = api_key or config.COHERE_API_KEY
+        self.client = None
 
-    Takes the output of HybridRetriever and re-scores each chunk
-    using Cohere's cross-encoder rerank model.
-
-    Args:
-        model:   Cohere rerank model to use.
-        api_key: Cohere API key. Reads from COHERE_API_KEY env var if None.
-    """
-
-    def __init__(
-        self,
-        model: str = RERANK_MODEL,
-        api_key: Optional[str] = None,
-    ):
-        self.model = model
-
-        api_key = api_key or os.getenv("COHERE_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "COHERE_API_KEY not found. "
-                "Add it to your .env file."
+        if not self.api_key:
+            logger.warning(
+                "COHERE_API_KEY not set — Reranker will pass candidates through "
+                "unchanged. Add COHERE_API_KEY to .env to enable reranking."
             )
+            return
 
-        self.client = cohere.ClientV2(api_key=api_key)
-        logger.info(f"Reranker ready | model={model}")
+        import cohere
+        self.client = cohere.ClientV2(api_key=self.api_key)
+        logger.info(f"Reranker ready | model={self.model}")
 
-    def rerank(
-        self,
-        query: str,
-        results: list[dict],
-        top_n: Optional[int] = None,
-    ) -> list[dict]:
-        """
-        Re-score and re-order retrieval results using Cohere rerank.
-
-        Args:
-            query:   The original search query.
-            results: Output of HybridRetriever.retrieve() or
-                     DenseRetriever.retrieve().
-            top_n:   Number of results to return after reranking.
-                     Defaults to all results.
-
-        Returns:
-            Re-ordered list of result dicts with updated
-            'score' (Cohere relevance score) and
-            'rerank_index' (original position before reranking).
-        """
+    def rerank(self, query: str, results: list[dict], top_n: Optional[int] = None) -> list[dict]:
         if not results:
             logger.warning("Reranker called with empty results list")
             return []
 
-        top_n = top_n or len(results)
+        top_n = top_n or config.RERANK_TOP_N
 
-        # Extract texts for Cohere API
+        if self.client is None:
+            return results[:top_n]
+
         documents = [r["text"] for r in results]
+        logger.info(f"Reranking {len(documents)} chunks for query: '{query[:60]}'")
 
-        logger.info(
-            f"Reranking {len(documents)} chunks for query: "
-            f"'{query[:60]}'"
-        )
+        try:
+            response = self.client.rerank(
+                model=self.model,
+                query=query,
+                documents=documents,
+                top_n=top_n,
+            )
+        except Exception as e:
+            # Covers Cohere timeouts, connection errors, 429s, 5xx — anything.
+            # Reranking is a quality boost, not core functionality: fail soft.
+            logger.error(f"Cohere rerank API call failed: {e}. Falling back to unreranked top-{top_n}.")
+            return results[:top_n]
 
-        # Call Cohere rerank API
-        response = self.client.rerank(
-            model=self.model,
-            query=query,
-            documents=documents,
-            top_n=top_n,
-        )
-
-        # Build reranked results list
         reranked = []
         for hit in response.results:
             original = results[hit.index]
@@ -120,64 +85,34 @@ class Reranker:
             reranked_result["retrieval_type"] = "hybrid+reranked"
             reranked.append(reranked_result)
 
-        logger.info(
-            f"Reranking complete | "
-            f"input={len(results)} → output={len(reranked)} chunks"
-        )
+        logger.info(f"Reranking complete | input={len(results)} -> output={len(reranked)} chunks")
         return reranked
 
-    def retrieve_and_rerank(
-        self,
-        query: str,
-        retriever,
-        fetch_k: int = 20,
-        top_n: int = 5,
-    ) -> list[dict]:
-        """
-        Convenience method: retrieve then immediately rerank.
-
-        Args:
-            query:     Natural language question.
-            retriever: Any retriever with a .retrieve() method
-                       (DenseRetriever or HybridRetriever).
-            fetch_k:   How many chunks to fetch before reranking.
-            top_n:     How many to return after reranking.
-
-        Returns:
-            Top-n reranked result dicts.
-        """
-        # Fetch more than needed so reranker has room to re-order
+    def retrieve_and_rerank(self, query: str, retriever, fetch_k: int = None, top_n: int = None) -> list[dict]:
+        fetch_k = fetch_k or config.HYBRID_FETCH_K
+        top_n = top_n or config.RERANK_TOP_N
         raw_results = retriever.retrieve(query, k=fetch_k)
-
-        # Rerank and return top_n
         return self.rerank(query, raw_results, top_n=top_n)
 
 
-# ---------------------------------------------------------------------------
-# Smoke test
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     import sys
+    from utils.logging_config import setup_logging
+    setup_logging()
+
     from retrieval.hybrid_retriever import HybridRetriever
 
     query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "What is FICC net revenue?"
-
-    print(f"\nQuery: {query}")
-    print("Step 1 — Running hybrid retrieval...")
+    print(f"\nQuery: {query}\nStep 1 — Running hybrid retrieval...")
 
     hybrid = HybridRetriever()
     raw_results = hybrid.retrieve(query, k=20)
 
     print(f"Step 2 — Reranking {len(raw_results)} results with Cohere...")
-
     reranker = Reranker()
     reranked = reranker.rerank(query, raw_results, top_n=5)
 
-    print(f"\n{'='*60}")
-    print(f"Reranked Results: {len(reranked)}")
-    print(f"{'='*60}")
-
+    print(f"\n{'='*60}\nReranked Results: {len(reranked)}\n{'='*60}")
     for i, r in enumerate(reranked, 1):
-        print(f"\n[{i}] Cohere Score: {r['score']} | {r['source']} | Page {r['page']}")
+        print(f"\n[{i}] Score: {r['score']} | {r['source']} | Page {r['page']}")
         print(r["text"][:300])

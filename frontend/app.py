@@ -1,90 +1,196 @@
 """
-frontend/app.py — minimal Phase 1 chat UI.
-Flow: question -> DenseRetriever -> format_context() -> Groq LLM -> answer.
-No citations/memory/hybrid search yet — that's Phase 2.
+frontend/app.py — Financial Document Intelligence (Final)
 
-Run from repo root:  streamlit run frontend/app.py
+Features:
+- Hybrid retrieval (Dense + BM25)
+- Cohere reranking
+- Groq LLM
+- Conversation memory
+- Source display
+- Reset conversation
+- Empty index warning
+- Streamlit session history
+
+Run:
+    streamlit run frontend/app.py
 """
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # make root importable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from utils.logging_config import setup_logging
+setup_logging()
 
 import streamlit as st
-from groq import Groq
 
-import config
-from retrieval.dense_retriever import DenseRetriever
+from chains.rag_chain import RAGChain
+from chains.conversational import ConversationalRAGChain
 
-st.set_page_config(page_title="Financial Doc Intelligence — Phase 1", page_icon="📄")
-st.title("📄 Financial Document Intelligence — Phase 1")
-st.caption("Dense retrieval only · no citations or memory yet")
+# -----------------------------------------------------------------------------
+# Page Config
+# -----------------------------------------------------------------------------
+
+st.set_page_config(
+    page_title="Financial Document Intelligence",
+    page_icon="📄",
+)
+
+st.title("📄 Financial Document Intelligence")
+st.caption(
+    "Hybrid Retrieval (Dense + BM25) • Cohere Reranking • Groq LLM • Conversation Memory"
+)
+
+# -----------------------------------------------------------------------------
+# Cached Components
+# -----------------------------------------------------------------------------
 
 
 @st.cache_resource
-def load_retriever() -> DenseRetriever:
-    return DenseRetriever(
-        collection_name=config.COLLECTION_NAME,
-        chroma_path=config.CHROMA_DB_PATH,
-        default_k=config.DEFAULT_TOP_K,
-        score_threshold=config.SCORE_THRESHOLD,
-    )
+def load_rag_chain() -> RAGChain:
+    """
+    Heavy, stateless components are cached globally.
+
+    Includes:
+    - Embedding model
+    - Chroma vector store
+    - BM25 index
+    - Cohere reranker
+    - Groq client
+    """
+    return RAGChain()
 
 
-@st.cache_resource
-def load_groq_client() -> Groq:
-    if not config.GROQ_API_KEY:
-        st.error("GROQ_API_KEY is not set. Add it to your .env file.")
-        st.stop()
-    return Groq(api_key=config.GROQ_API_KEY)
+rag_chain = load_rag_chain()
 
+# -----------------------------------------------------------------------------
+# Warn if no documents are indexed
+# -----------------------------------------------------------------------------
 
-retriever = load_retriever()
-client = load_groq_client()
+try:
+    if (
+        hasattr(rag_chain, "dense_retriever")
+        and rag_chain.dense_retriever.collection.count() == 0
+    ):
+        st.warning(
+            "No documents indexed yet.\n\n"
+            "Run:\n"
+            "`python -m ingestion.indexer`"
+        )
+except Exception:
+    pass
 
-if retriever.collection.count() == 0:
-    st.warning("No documents indexed yet. Run `python -m ingestion.indexer` first.")
+# -----------------------------------------------------------------------------
+# Session State
+# -----------------------------------------------------------------------------
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+if "conv_chain" not in st.session_state:
+    # Conversation memory should NOT be cached globally.
+    st.session_state.conv_chain = ConversationalRAGChain(rag_chain=rag_chain)
 
-for msg in st.session_state.history:
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# -----------------------------------------------------------------------------
+# Sidebar
+# -----------------------------------------------------------------------------
+
+with st.sidebar:
+    st.header("Options")
+
+    if st.button("🔄 Reset Conversation"):
+        st.session_state.conv_chain.reset()
+        st.session_state.messages = []
+        st.rerun()
+
+# -----------------------------------------------------------------------------
+# Previous Messages
+# -----------------------------------------------------------------------------
+
+for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-question = st.chat_input("Ask a question about your indexed documents...")
+        if msg.get("sources"):
+            st.caption("**Sources:** " + ", ".join(msg["sources"]))
+
+# -----------------------------------------------------------------------------
+# Chat Input
+# -----------------------------------------------------------------------------
+
+question = st.chat_input("Ask a question about your indexed financial documents...")
 
 if question:
-    st.session_state.history.append({"role": "user", "content": question})
+
+    # Store user message
+    st.session_state.messages.append(
+        {
+            "role": "user",
+            "content": question,
+        }
+    )
+
     with st.chat_message("user"):
         st.markdown(question)
 
     with st.chat_message("assistant"):
-        with st.spinner("Retrieving relevant chunks..."):
-            results = retriever.retrieve(question)
-            context = retriever.format_context(results)
 
-        if not results:
-            answer = "I couldn't find anything relevant in the indexed documents."
-        else:
-            prompt = (
-                "You are a financial document analyst. Answer using ONLY the "
-                "context below. If the context doesn't contain the answer, "
-                "say so explicitly — do not guess.\n\n"
-                f"Context:\n{context}\n\nQuestion: {question}"
+        with st.spinner("Retrieving, reranking, and generating answer..."):
+            result = st.session_state.conv_chain.ask(question)
+
+        # ---------------------------------------------------------------------
+        # Answer
+        # ---------------------------------------------------------------------
+
+        st.markdown(result.answer)
+
+        # ---------------------------------------------------------------------
+        # Sources
+        # ---------------------------------------------------------------------
+
+        source_strings = [
+            f"{src.source} (p.{src.page})"
+            for src in result.sources
+        ]
+
+        if source_strings:
+            st.caption("**Sources:** " + ", ".join(source_strings))
+
+        # ---------------------------------------------------------------------
+        # Context warning
+        # ---------------------------------------------------------------------
+
+        if not result.found_in_context:
+            st.info(
+                "The indexed documents may not contain enough information "
+                "to fully answer this question."
             )
-            with st.spinner("Generating answer..."):
-                response = client.chat.completions.create(
-                    model=config.GROQ_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.1,
-                )
-                answer = response.choices[0].message.content
 
-        st.markdown(answer)
-        with st.expander(f"Retrieved {len(results)} chunk(s)"):
-            for r in results:
-                st.markdown(f"**{r['source']} · page {r['page']}** (score: {r['score']})")
-                st.text(r["text"][:300])
+        # ---------------------------------------------------------------------
+        # Retrieved Chunks (optional debug)
+        # ---------------------------------------------------------------------
 
-    st.session_state.history.append({"role": "assistant", "content": answer})
+        if hasattr(result, "sources") and result.sources:
+            with st.expander(f"Retrieved {len(result.sources)} chunk(s)"):
+
+                for chunk in result.sources:
+
+                    st.markdown(
+                        f"**{chunk.source} · page {chunk.page}**"
+                    )
+
+                    if hasattr(chunk, "score"):
+                        st.caption(f"Score: {chunk.score:.4f}")
+
+                    if hasattr(chunk, "text"):
+                        st.text(chunk.text[:500])
+
+    # Store assistant response
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": result.answer,
+            "sources": source_strings,
+        }
+    )

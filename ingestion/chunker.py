@@ -36,7 +36,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import config
 from ingestion.pdf_parser import table_to_text
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -183,6 +183,9 @@ def chunk_stats(chunks: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 # Smoke-test
 # ---------------------------------------------------------------------------
+from utils.logging_config import setup_logging
+setup_logging()
+
 
 if __name__ == "__main__":
     import sys
