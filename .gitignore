@@ -1,4 +1,5 @@
 data/raw/
+data/raw_pdfs/
 data/embeddings/
 .env
 __pycache__/
