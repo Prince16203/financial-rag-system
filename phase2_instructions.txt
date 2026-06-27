@@ -1,0 +1,473 @@
+# Financial Document Intelligence System
+
+## Phase 2 Summary & Phase 3 Development Notes
+
+**Project:** Financial Document Intelligence System
+**Current Status:** ✅ Phase 2 Completed
+
+---
+
+# Phase 2 Objectives
+
+Phase 2 extends the Phase 1 retrieval pipeline by introducing hybrid retrieval, reranking, structured outputs, and multi-turn conversation memory.
+
+Current pipeline:
+
+```
+PDF
+    ↓
+PDF Parser
+    ↓
+Chunker
+    ↓
+Embedding Model (BGE)
+    ↓
+ChromaDB
+    ↓
+Dense Retrieval
+           +
+BM25 Sparse Retrieval
+           ↓
+Reciprocal Rank Fusion (RRF)
+           ↓
+Cohere Reranker
+           ↓
+Groq LLM
+           ↓
+Structured Answer
+           ↓
+Conversation Memory
+```
+
+---
+
+# Phase 2 Features Implemented
+
+## 1. Hybrid Retrieval
+
+Implemented:
+
+* Dense Retriever
+* BM25 Sparse Retriever
+* Reciprocal Rank Fusion (RRF)
+
+Advantages:
+
+* Semantic search from embeddings
+* Exact keyword matching
+* Better retrieval quality than dense-only search
+
+---
+
+## 2. Cohere Reranking
+
+Added semantic reranking after hybrid retrieval.
+
+Pipeline:
+
+```
+Top-20 Hybrid Results
+        ↓
+Cohere Rerank
+        ↓
+Top-5 Context Chunks
+```
+
+This significantly improves context quality before sending it to the LLM.
+
+---
+
+## 3. RAG Chain
+
+Created a dedicated orchestration layer.
+
+Responsibilities:
+
+* Retrieve documents
+* Rerank results
+* Build prompt
+* Call Groq
+* Return structured response
+
+The frontend no longer communicates directly with retrievers.
+
+---
+
+## 4. Conversation Memory
+
+Implemented:
+
+* Multi-turn conversation history
+* Sliding window memory
+* Conversation reset
+
+History format:
+
+```
+Question
+↓
+
+Answer
+↓
+
+Question
+↓
+
+Answer
+```
+
+Conversation history is injected into the LLM prompt.
+
+---
+
+## 5. Structured Output Parsing
+
+Implemented using Pydantic.
+
+Current schema:
+
+```
+ChatAnswer
+
+├── answer
+├── sources
+└── found_in_context
+```
+
+Benefits:
+
+* Consistent API responses
+* Easier frontend rendering
+* Future FastAPI compatibility
+
+---
+
+## 6. Streamlit Frontend
+
+Updated frontend now supports:
+
+* Hybrid retrieval
+* Cohere reranking
+* Conversation memory
+* Source display
+* Reset conversation
+
+---
+
+# Architecture
+
+```
+Frontend
+     │
+     ▼
+ConversationalRAGChain
+     │
+     ▼
+RAGChain
+     │
+     ▼
+HybridRetriever
+     │
+     ▼
+Dense + Sparse
+     │
+     ▼
+RRF
+     │
+     ▼
+Cohere Reranker
+     │
+     ▼
+Groq
+```
+
+---
+
+# Design Decisions
+
+## RAGChain remains stateless
+
+RAGChain does **not** store conversations.
+
+It only knows:
+
+```
+Question
+
+↓
+
+Retrieve
+
+↓
+
+Rerank
+
+↓
+
+Generate
+
+↓
+
+Return Answer
+```
+
+Conversation state is managed only inside `ConversationalRAGChain`.
+
+---
+
+## Conversation Memory
+
+Current history structure:
+
+```python
+{
+    "question": "...",
+    "answer": "..."
+}
+```
+
+This is intentionally simple for Phase 2.
+
+---
+
+# Current Limitation
+
+The current implementation **does not perform history-aware retrieval**.
+
+Current flow:
+
+```
+Question
+      ↓
+Retriever
+      ↓
+Context
+      ↓
+Conversation History
+      ↓
+LLM
+```
+
+Example:
+
+```
+Q1:
+What was Microsoft's total revenue in FY2025?
+
+Q2:
+What about last year?
+```
+
+Retriever only receives:
+
+```
+What about last year?
+```
+
+Therefore retrieval quality is poor for follow-up questions.
+
+Conversation memory helps the LLM, but **cannot improve retrieval**, because retrieval has already completed.
+
+This is expected behaviour for the current architecture.
+
+---
+
+# Known Future Improvements
+
+The following items are intentionally postponed to Phase 3.
+
+---
+
+## 1. History-aware Retrieval (Highest Priority)
+
+Introduce a new component:
+
+```
+chains/
+    history_rewriter.py
+```
+
+Pipeline becomes:
+
+```
+Conversation History
+        +
+Current Question
+        ↓
+History Rewriter
+        ↓
+Standalone Question
+        ↓
+Hybrid Retrieval
+        ↓
+Reranking
+        ↓
+LLM
+```
+
+Example:
+
+Original:
+
+```
+What about last year?
+```
+
+Rewritten:
+
+```
+What was Microsoft's total revenue in FY2024?
+```
+
+This rewritten query will be used for retrieval.
+
+---
+
+## 2. Rich Conversation History
+
+History objects will become:
+
+```python
+{
+    "question": "...",
+    "rewritten_question": "...",
+    "answer": "...",
+    "sources": [...]
+}
+```
+
+Benefits:
+
+* Easier debugging
+* Better evaluation
+* Improved logging
+* Supports query rewriting
+
+---
+
+## 3. Base Retriever Interface
+
+Current:
+
+```
+DenseRetriever
+
+HybridRetriever
+```
+
+Planned:
+
+```
+BaseRetriever
+
+├── DenseRetriever
+├── HybridRetriever
+└── AgentRetriever
+```
+
+This allows RAGChain to work with any retriever implementation.
+
+---
+
+## 4. RetrievalResult Model
+
+Replace generic dictionaries with a shared model.
+
+Current:
+
+```
+list[dict]
+```
+
+Planned:
+
+```python
+RetrievalResult
+```
+
+Shared by:
+
+* Dense Retriever
+* Sparse Retriever
+* Hybrid Retriever
+* Reranker
+* RAG Chain
+* Future Agents
+
+---
+
+## 5. Shared Context Formatter
+
+Move duplicated `format_context()` logic into a shared utility module.
+
+---
+
+## 6. Prompt Improvements
+
+Current:
+
+Single prompt string.
+
+Future:
+
+* Separate system messages
+* User messages
+* Prompt templates
+
+---
+
+## 7. Source Deduplication
+
+Current:
+
+Duplicate page references may appear.
+
+Future:
+
+Display unique citations only.
+
+---
+
+## 8. Token-based Memory
+
+Current:
+
+Conversation keeps the last N turns.
+
+Future:
+
+Conversation window based on token count.
+
+---
+
+# Validation Checklist
+
+Phase 2 is considered complete when:
+
+* [x] PDF ingestion works
+* [x] ChromaDB indexing works
+* [x] Dense retrieval works
+* [x] BM25 retrieval works
+* [x] Hybrid retrieval works
+* [x] Cohere reranking works
+* [x] Groq generation works
+* [x] Structured output parsing works
+* [x] Conversation memory works
+* [x] Streamlit frontend works
+* [x] Conversation reset works
+
+---
+
+# Phase 3 Goals
+
+Primary focus:
+
+* History-aware retrieval
+* Query rewriting
+* Better retrieval abstraction
+* RetrievalResult model
+* BaseRetriever interface
+
+Phase 3 should improve retrieval quality for follow-up questions while preserving the current architecture.
+
+No major changes to the ingestion pipeline are expected.

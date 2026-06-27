@@ -34,7 +34,7 @@ import config
 from ingestion.embedder import Embedder
 from ingestion.indexer  import DEFAULT_COLLECTION, DEFAULT_CHROMA_PATH
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -241,6 +241,8 @@ def _parse_chroma_results(raw: dict, score_threshold: float) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Smoke-test
 # ---------------------------------------------------------------------------
+from utils.logging_config import setup_logging
+setup_logging()
 
 if __name__ == "__main__":
     import sys

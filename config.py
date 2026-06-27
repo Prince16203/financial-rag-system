@@ -3,6 +3,7 @@ config.py — centralized paths, model names, tunable defaults.
 Every other module imports from here instead of hardcoding values.
 """
 
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -34,3 +35,26 @@ SCORE_THRESHOLD = 0.0
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL   = "llama-3.3-70b-versatile"
+
+# --- Hybrid retrieval (Phase 2) ---
+DENSE_WEIGHT   = 0.5
+SPARSE_WEIGHT  = 0.5
+HYBRID_FETCH_K = 20
+RRF_K          = 60
+
+# --- Reranking (Phase 2) ---
+COHERE_API_KEY      = os.getenv("COHERE_API_KEY", "")
+COHERE_RERANK_MODEL = "rerank-english-v3.0"
+RERANK_TOP_N        = 5
+
+# --- LLM generation ---
+LLM_TEMPERATURE = 0.1
+
+# --- Conversation memory ---
+MAX_HISTORY_TURNS = 5
+
+# --- API retry behavior ---
+API_MAX_RETRIES = 2
+
+# --- Logging (read by utils/logging_config.py — the ONLY place this fires) ---
+LOG_LEVEL = logging.INFO

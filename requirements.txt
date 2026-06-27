@@ -1,32 +1,69 @@
 # ============================================================
-# Financial RAG System — Phase 1 Requirements
-# Python 3.13.1 | conda env: repo_env
-# Install: pip install -r requirements.txt
+# Financial RAG System — Phase 1 + Phase 2 Requirements
+# Python 3.13.1
+# python >=3.13, <=3.14
+#
+# Install:
+#     pip install -r requirements.txt
 # ============================================================
 
-# --- PDF Parsing ---
+# ------------------------------------------------------------
+# PDF Parsing
+# ------------------------------------------------------------
 pdfplumber==0.11.4
 
-# --- LangChain (text splitter only — full langchain/langchain-community
-# is NOT used; langchain-community is being sunset by the LangChain team.
-# We only need RecursiveCharacterTextSplitter, which lives here.) ---
+# ------------------------------------------------------------
+# LangChain (lightweight components only)
+# We intentionally do NOT use:
+#   - langchain
+#   - langchain-community
+# ------------------------------------------------------------
 langchain-core==1.4.8
 langchain-text-splitters==1.1.2
 
-# --- Embeddings (sentence-transformers pulls torch + transformers + numpy
-# automatically — DO NOT pin those by hand, let pip resolve 3.13-compatible
-# builds itself. Hand-pinning numpy/torch is what breaks installs on new
-# Python versions.) ---
+# ------------------------------------------------------------
+# Embeddings
+# sentence-transformers automatically installs compatible
+# versions of torch, transformers, tokenizers, etc.
+# ------------------------------------------------------------
 sentence-transformers==5.6.0
 
-# --- Vector store (1.5.x is the first line with confirmed cp313 wheels) ---
+# ------------------------------------------------------------
+# Vector Database
+# ------------------------------------------------------------
 chromadb==1.5.9
 
-# --- LLM API (Groq) ---
+# ------------------------------------------------------------
+# Sparse Retrieval (Phase 2)
+# ------------------------------------------------------------
+rank-bm25==0.2.2
+
+# ------------------------------------------------------------
+# Reranking (Phase 2)
+# ------------------------------------------------------------
+cohere==5.20.0
+
+# ------------------------------------------------------------
+# LLM API
+# ------------------------------------------------------------
 groq==1.1.2
 
-# --- Frontend ---
+# ------------------------------------------------------------
+# Frontend
+# ------------------------------------------------------------
 streamlit==1.58.0
 
+<<<<<<< Updated upstream
 # --- Environment / config ---
+=======
+# ------------------------------------------------------------
+# Core libraries imported directly in the project
+# ------------------------------------------------------------
+numpy==2.1.0
+pydantic==2.11.7
+
+# ------------------------------------------------------------
+# Environment / Configuration
+# ------------------------------------------------------------
+>>>>>>> Stashed changes
 python-dotenv==1.0.1

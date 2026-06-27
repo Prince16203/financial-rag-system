@@ -29,7 +29,7 @@ from typing import Optional
 
 import config
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -179,6 +179,9 @@ def table_to_text(table: list[list[str]]) -> str:
 # ---------------------------------------------------------------------------
 # Quick smoke-test — run this file directly to verify a PDF
 # ---------------------------------------------------------------------------
+
+from utils.logging_config import setup_logging
+setup_logging()
 
 if __name__ == "__main__":
     import sys

@@ -30,7 +30,7 @@ from chromadb.config import Settings
 
 import config
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -247,6 +247,8 @@ def run_ingestion_pipeline(
 # ---------------------------------------------------------------------------
 # Smoke-test
 # ---------------------------------------------------------------------------
+from utils.logging_config import setup_logging
+setup_logging()
 
 if __name__ == "__main__":
     import sys
