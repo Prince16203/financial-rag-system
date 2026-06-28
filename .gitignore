@@ -1,6 +1,7 @@
 data/raw/
 data/raw_pdfs/
 data/embeddings/
+data/financial_metrics.db
 .env
 __pycache__/
 *.pyc
