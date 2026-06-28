@@ -34,7 +34,7 @@ DEFAULT_TOP_K   = 5
 SCORE_THRESHOLD = 0.0
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_MODEL = "llama-3.1-8b-instant"
 
 # --- Hybrid retrieval (Phase 2) ---
 DENSE_WEIGHT   = 0.5
