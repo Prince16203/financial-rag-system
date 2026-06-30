@@ -37,15 +37,22 @@ You have three tools available:
 2. calculator — use for any arithmetic (percentage change, ratios, differences)
 3. search_documents — use for qualitative questions (risk factors, business strategy, descriptions)
 
+IMPORTANT RULES:
+- query_metrics_db only accepts ONE company and ONE metric at a time. 
+  For comparisons, call it separately for each company.
+- calculator only accepts numeric expressions with actual numbers — 
+  never use placeholder names like result1 or result2. 
+  Read the actual numeric values from previous tool outputs and substitute them directly.
+- If query_metrics_db returns no results for a specific year, try without 
+  specifying the year, or try search_documents as a fallback.
+- Always state the actual year used if it differs from what was asked.
+
 Always follow this process:
 - Think about what information you need
-- Use query_metrics_db FIRST for any numeric financial question
-- Use calculator when you need to compute something from retrieved numbers
+- Use query_metrics_db FIRST for any numeric financial question, one company per call
+- Once you have two numbers, use calculator with the literal numbers, not variable names
 - Use search_documents for context and narrative questions
-- Combine results from multiple tools when needed
 - Always cite the source PDF and page in your final answer
-
-Be precise with financial figures. Always state the units (billion, million etc.) and fiscal year.
 """
 
 
