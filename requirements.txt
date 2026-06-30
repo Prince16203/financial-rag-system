@@ -1,64 +1,45 @@
 # ============================================================
-# Financial RAG System — Phase 1 + Phase 2 Requirements
+# Financial RAG System — Phase 1 + 2 + 3 Requirements
 # Python 3.13.1
-# python >=3.13, <=3.14
-#
-# Install:
-#     pip install -r requirements.txt
+# Install: pip install -r requirements.txt
 # ============================================================
 
-# ------------------------------------------------------------
-# PDF Parsing
-# ------------------------------------------------------------
+# --- PDF Parsing ---
 pdfplumber==0.11.4
 
-# ------------------------------------------------------------
-# LangChain (lightweight components only)
-# We intentionally do NOT use:
-#   - langchain
-#   - langchain-community
-# ------------------------------------------------------------
+# --- LangChain (lightweight only — NOT langchain-community) ---
 langchain-core==1.4.8
 langchain-text-splitters==1.1.2
 
-# ------------------------------------------------------------
-# Embeddings
-# sentence-transformers automatically installs compatible
-# versions of torch, transformers, tokenizers, etc.
-# ------------------------------------------------------------
+# --- Embeddings ---
 sentence-transformers==5.6.0
 
-# ------------------------------------------------------------
-# Vector Database
-# ------------------------------------------------------------
+# --- Vector Database ---
 chromadb==1.5.9
 
-# ------------------------------------------------------------
-# Sparse Retrieval (Phase 2)
-# ------------------------------------------------------------
+# --- Sparse Retrieval ---
 rank-bm25==0.2.2
 
-# ------------------------------------------------------------
-# Reranking (Phase 2)
-# ------------------------------------------------------------
+# --- Reranking ---
 cohere==5.20.0
 
-# ------------------------------------------------------------
-# LLM API
-# ------------------------------------------------------------
+# --- LLM API (called directly — NOT via langchain-groq which conflicts) ---
 groq==1.1.2
 
-# ------------------------------------------------------------
-# Frontend
-# ------------------------------------------------------------
+# --- LangChain OpenAI (for LangGraph agent — uses Groq's OpenAI-compatible endpoint) ---
+# Does NOT conflict with groq>=1.0 the way langchain-groq does
+langchain-openai
+
+# --- Agents + Orchestration (Phase 3) ---
+langgraph
+sqlalchemy
+
+# --- API Layer (Phase 3) ---
+fastapi
+uvicorn[standard]
+
+# --- Frontend ---
 streamlit==1.58.0
 
-# --- Environment / config ---
+# --- Environment ---
 python-dotenv==1.0.1
-
-rank-bm25
-cohere
-langchain-cohere
-sqlalchemy
-langgraph
-langchain-groq

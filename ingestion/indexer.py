@@ -247,12 +247,14 @@ def run_ingestion_pipeline(
 # ---------------------------------------------------------------------------
 # Smoke-test
 # ---------------------------------------------------------------------------
-from utils.logging_config import setup_logging
-setup_logging()
+
 
 if __name__ == "__main__":
     import sys
 
+    from utils.logging_config import setup_logging
+    setup_logging()
+    
     pdf_dir = sys.argv[1] if len(sys.argv) > 1 else str(config.RAW_PDF_DIR)
     stats   = run_ingestion_pipeline(pdf_dir=pdf_dir)
 

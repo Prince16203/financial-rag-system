@@ -180,11 +180,12 @@ def table_to_text(table: list[list[str]]) -> str:
 # Quick smoke-test — run this file directly to verify a PDF
 # ---------------------------------------------------------------------------
 
-from utils.logging_config import setup_logging
-setup_logging()
+
 
 if __name__ == "__main__":
     import sys
+    from utils.logging_config import setup_logging
+    setup_logging()
 
     path = sys.argv[1] if len(sys.argv) > 1 else str(config.RAW_PDF_DIR)
 

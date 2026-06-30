@@ -79,8 +79,10 @@ def get_metric_count() -> int:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import logging
-    logging.basicConfig(level=logging.INFO)
+    # import logging
+    # logging.basicConfig(level=logging.INFO)
+    from utils.logging_config import setup_logging
+    setup_logging()
 
     init_db()
 

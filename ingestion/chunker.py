@@ -183,15 +183,16 @@ def chunk_stats(chunks: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 # Smoke-test
 # ---------------------------------------------------------------------------
-from utils.logging_config import setup_logging
-setup_logging()
+
 
 
 if __name__ == "__main__":
     import sys
     from ingestion.pdf_parser import parse_pdf, parse_directory
     import os
-
+    from utils.logging_config import setup_logging
+    setup_logging()
+    
     path = sys.argv[1] if len(sys.argv) > 1 else str(config.RAW_PDF_DIR)
 
     if os.path.isdir(path):

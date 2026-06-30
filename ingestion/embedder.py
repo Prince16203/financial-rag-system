@@ -36,7 +36,7 @@ Usage:
     chunks   = embedder.embed_chunks(chunks)       # adds "embedding" to each chunk
     vec      = embedder.embed_query("What is VaR?")  # single query vector
 """
-
+import torch
 import logging
 import os
 from typing import Optional
@@ -77,10 +77,22 @@ class Embedder:
     def __init__(
         self,
         model_name: str = DEFAULT_MODEL,
-        device: Optional[str] = None,
+        device: Optional[str] = None,   # None = auto-detect
         batch_size: int = BATCH_SIZE,
         cache_dir: Optional[str] = None,
     ):
+        # Auto-detect: CUDA > MPS (Apple Silicon) > CPU
+        if device is None:
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
+
+        # Larger batch on GPU — no memory pressure
+        if device != "cpu" and batch_size == BATCH_SIZE:
+            batch_size = 256
         self.model_name = model_name
         self.batch_size = batch_size
         self._device    = device  # None → auto
@@ -194,13 +206,14 @@ class Embedder:
 # Smoke-test
 # ---------------------------------------------------------------------------
 
-from utils.logging_config import setup_logging
-setup_logging()
+
 if __name__ == "__main__":
     import sys
     from ingestion.pdf_parser import parse_pdf, parse_directory
     from ingestion.chunker import chunk_pages
     import os
+    from utils.logging_config import setup_logging
+    setup_logging()
 
     path = sys.argv[1] if len(sys.argv) > 1 else str(config.RAW_PDF_DIR)
 

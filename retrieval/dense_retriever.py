@@ -241,12 +241,13 @@ def _parse_chroma_results(raw: dict, score_threshold: float) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Smoke-test
 # ---------------------------------------------------------------------------
-from utils.logging_config import setup_logging
-setup_logging()
+
 
 if __name__ == "__main__":
     import sys
-
+    from utils.logging_config import setup_logging
+    setup_logging()
+    
     query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "What is the total revenue?"
 
     retriever = DenseRetriever()

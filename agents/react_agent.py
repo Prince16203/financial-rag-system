@@ -1,191 +1,168 @@
 """
-agents/react_agent.py
+agents/sql_agent.py
 
-ReAct agent using LangGraph that orchestrates all three tools:
-- query_metrics_db: for structured financial numbers
-- calculator: for arithmetic
-- search_documents: for qualitative text questions
+Natural language → SQL chain over the financial_metrics SQLite table.
+Generates SQL via Groq LLM, validates it (SELECT-only), executes via
+SQLAlchemy, and returns formatted results.
 
-ReAct loop:
-    Thought -> Action -> Observation -> Thought -> ... -> Final Answer
+This is intentionally lightweight — no langchain-community dependency.
+For complex multi-table schemas, swap in create_sql_agent from
+langchain_community when that package becomes available.
 
 Usage:
-    from agents.react_agent import FinancialAgent
+    from agents.sql_agent import SQLAgent
 
-    agent = FinancialAgent()
-    result = agent.run("What was Apple revenue in 2024 and how does it compare to 2023?")
-    print(result["output"])
+    agent = SQLAgent()
+    result = agent.query("Show me all revenue metrics for Apple in 2024")
+    print(result)
 """
 
 import logging
+import re
 from typing import Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_groq import ChatGroq
-from langgraph.prebuilt import create_react_agent
+from groq import Groq
+from sqlalchemy import text
 
 import config
-from agents.tools import TOOLS
+from database.db import engine, get_session, init_db
+from database.models import FinancialMetric
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-SYSTEM_MESSAGE = """You are a financial document analyst with access to tools.
-
-You have three tools available:
-1. query_metrics_db — use for specific financial numbers (revenue, net income, FICC revenue etc.)
-2. calculator — use for any arithmetic (percentage change, ratios, differences)
-3. search_documents — use for qualitative questions (risk factors, business strategy, descriptions)
-
-Always follow this process:
-- Think about what information you need
-- Use query_metrics_db FIRST for any numeric financial question
-- Use calculator when you need to compute something from retrieved numbers
-- Use search_documents for context and narrative questions
-- Combine results from multiple tools when needed
-- Always cite the source PDF and page in your final answer
-
-Be precise with financial figures. Always state the units (billion, million etc.) and fiscal year.
+# Schema description injected into every prompt so the LLM knows the table
+SCHEMA = """
+Table: financial_metrics
+Columns:
+  id            INTEGER  PRIMARY KEY
+  company       TEXT     e.g. 'Apple', 'Goldman Sachs', 'JPMorgan', 'BlackRock', 'Microsoft'
+  metric_name   TEXT     e.g. 'revenue', 'net_income', 'ficc_revenue', 'equity_revenue',
+                              'investment_banking_revenue', 'total_assets', 'eps', 'var',
+                              'tier1_capital_ratio'
+  value         REAL     numeric value
+  unit          TEXT     e.g. 'billion USD', 'million USD', 'percent'
+  fiscal_year   INTEGER  4-digit year, may be NULL
+  source        TEXT     PDF filename
+  page          INTEGER  page number in source PDF
+  created_at    DATETIME
 """
 
+SQL_PROMPT = """You are a SQLite expert. Write a SQL SELECT query for the question below.
 
-class FinancialAgent:
+{schema}
+
+Rules:
+- Write ONLY a single SELECT statement
+- No INSERT, UPDATE, DELETE, DROP, or any DDL
+- Use LOWER() for case-insensitive company/metric comparisons when helpful
+- Return ONLY the SQL query, no explanation, no markdown fences
+
+Question: {question}
+
+SQL:"""
+
+
+class SQLAgent:
     """
-    ReAct agent for financial document analysis.
-
-    Combines SQL database queries, calculations, and document
-    search to answer complex financial questions.
+    Converts natural language questions into SQL queries over
+    the financial_metrics table and returns formatted results.
 
     Args:
-        model:       Groq model to use for reasoning.
-        temperature: LLM temperature. Keep low for factual answers.
-        verbose:     If True prints each reasoning step.
+        groq_client: Optional pre-built Groq client.
     """
 
-    def __init__(
-        self,
-        model: str = None,
-        temperature: float = 0.0,
-        verbose: bool = True,
-    ):
-        model = model or config.GROQ_MODEL
-
+    def __init__(self, groq_client: Optional[Groq] = None):
         if not config.GROQ_API_KEY:
             raise ValueError("GROQ_API_KEY not set in .env")
 
-        # LangChain ChatGroq wrapper — required for LangGraph
-        self.llm = ChatGroq(
-            model=model,
-            api_key=config.GROQ_API_KEY,
-            temperature=temperature,
-        )
+        self.client = groq_client or Groq(api_key=config.GROQ_API_KEY)
+        init_db()
+        logger.info("SQLAgent ready")
 
-        # Create ReAct agent using LangGraph prebuilt
-        # This handles the Thought/Action/Observation loop automatically
-        self.agent = create_react_agent(
-            model=self.llm,
-            tools=TOOLS,
-            prompt=SYSTEM_MESSAGE,
-        )
-
-        self.verbose = verbose
-        logger.info(f"FinancialAgent ready | model={model} | tools={[t.name for t in TOOLS]}")
-
-    def run(self, question: str) -> dict:
+    def query(self, question: str) -> str:
         """
-        Run the ReAct agent on a question.
-
-        The agent will:
-        1. Reason about which tools to use
-        2. Call tools in sequence
-        3. Observe results
-        4. Produce a final answer
+        Answer a natural language question by generating and running SQL.
 
         Args:
-            question: Natural language financial question.
+            question: Plain English question about financial metrics.
 
         Returns:
-            Dict with 'output' (final answer string) and
-            'steps' (list of tool calls made).
+            Formatted string of results, or an error message.
         """
-        logger.info(f"Agent question: '{question[:80]}'")
+        sql = self._generate_sql(question)
+        if not sql:
+            return "Could not generate a valid SQL query for this question."
 
-        messages = [HumanMessage(content=question)]
+        logger.info(f"Generated SQL: {sql}")
+        return self._execute_sql(sql, question)
+
+    def _generate_sql(self, question: str) -> Optional[str]:
+        """Ask Groq to write a SELECT query for this question."""
+        prompt = SQL_PROMPT.format(schema=SCHEMA, question=question)
 
         try:
-            result = self.agent.invoke({"messages": messages})
+            response = self.client.chat.completions.create(
+                model=config.GROQ_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+            )
+            raw = response.choices[0].message.content.strip()
 
-            # Extract final answer from last message
-            final_message = result["messages"][-1]
-            output = final_message.content
+            # Strip markdown fences if model added them
+            raw = re.sub(r"```sql|```", "", raw).strip()
 
-            # Extract tool calls made during reasoning
-            steps = []
-            for msg in result["messages"]:
-                if hasattr(msg, "tool_calls") and msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        steps.append({
-                            "tool": tc["name"],
-                            "input": tc["args"],
-                        })
+            # Safety: only allow SELECT statements
+            if not raw.upper().lstrip().startswith("SELECT"):
+                logger.warning(f"Non-SELECT query rejected: {raw[:100]}")
+                return None
 
-            if self.verbose:
-                self._print_steps(question, steps, output)
-
-            return {
-                "output": output,
-                "steps":  steps,
-                "messages": result["messages"],
-            }
+            return raw
 
         except Exception as e:
-            logger.error(f"Agent error: {e}")
-            return {
-                "output": f"Agent encountered an error: {e}",
-                "steps":  [],
-                "messages": [],
-            }
+            logger.error(f"SQL generation error: {e}")
+            return None
 
-    def _print_steps(self, question: str, steps: list, output: str) -> None:
-        """Print reasoning steps in readable format."""
-        print(f"\n{'='*60}")
-        print(f"Question: {question}")
-        print(f"{'='*60}")
+    def _execute_sql(self, sql: str, question: str) -> str:
+        """Execute the SQL and format the results."""
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(text(sql))
+                rows = result.fetchall()
+                columns = list(result.keys())
 
-        if steps:
-            print(f"\nTools used ({len(steps)} calls):")
-            for i, step in enumerate(steps, 1):
-                print(f"  [{i}] {step['tool']}")
-                input_str = str(step['input'])[:100]
-                print(f"      Input: {input_str}")
+            if not rows:
+                return (
+                    f"No results found for: '{question}'\n"
+                    f"SQL used: {sql}"
+                )
 
-        print(f"\nFinal Answer:")
-        print(output)
-        print(f"{'='*60}\n")
+            # Format as readable table
+            lines = [f"Results for: '{question}'", f"SQL: {sql}", ""]
+            header = " | ".join(columns)
+            lines.append(header)
+            lines.append("-" * len(header))
 
+            for row in rows[:20]:  # cap at 20 rows for readability
+                lines.append(" | ".join(str(v) for v in row))
 
-# ---------------------------------------------------------------------------
-# Smoke test
-# ---------------------------------------------------------------------------
+            if len(rows) > 20:
+                lines.append(f"... ({len(rows) - 20} more rows)")
+
+            logger.info(f"SQL query returned {len(rows)} rows")
+            return "\n".join(lines)
+
+        except Exception as e:
+            logger.error(f"SQL execution error: {e}")
+            return f"SQL execution failed: {e}\nSQL: {sql}"
+
 
 if __name__ == "__main__":
     import sys
+    from utils.logging_config import setup_logging
+    setup_logging()
 
-    # Install langgraph if not already installed
-    try:
-        import langgraph
-    except ImportError:
-        print("Installing langgraph...")
-        import subprocess
-        subprocess.run(["pip", "install", "langgraph", "langchain-groq"])
+    question = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else \
+        "Show me all revenue metrics for Apple"
 
-    questions = [
-        "What was Apple's total revenue in 2024?",
-        "What are the main risk factors disclosed by Goldman Sachs?",
-        "Calculate the percentage: if Apple revenue was 391.04 billion in 2024, what is 10% of that?",
-    ]
-
-    question = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else questions[0]
-
-    agent = FinancialAgent()
-    result = agent.run(question)
+    agent = SQLAgent()
+    print(agent.query(question))
