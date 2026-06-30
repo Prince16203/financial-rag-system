@@ -1,47 +1,163 @@
 # ============================================================
-# Financial RAG System — Phase 1 + 2 + 3 Requirements
-# Python 3.13.1
+# Financial RAG System — Phase 1 + 2 + 3 Complete Requirements
+# Python 3.13.1 (tested)
 # python >=3.13, <=3.14
+# 
 # Install:
 #     pip install -r requirements.txt
+# 
+# Then run:
+#     python scripts/seed_db.py          # seed test data
+#     python -m ingestion.indexer        # index PDFs
+#     streamlit run frontend/app.py      # launch UI
 # ============================================================
 
-# --- PDF Parsing ---
+# =========================================================================
+# PHASE 1 — INGESTION (PDF parsing, chunking, embedding, indexing)
+# =========================================================================
+
+# PDF parsing
 pdfplumber==0.11.4
 
-# --- LangChain (lightweight only — NOT langchain-community) ---
-langchain-core==1.4.8
+# Text splitting
 langchain-text-splitters==1.1.2
 
-# --- Embeddings ---
+# Embeddings (BAAI/bge-base-en-v1.5)
 sentence-transformers==5.6.0
+torch>=2.0.0          # for transformers (CPU or GPU as needed)
 
-# --- Vector Database ---
+# Vector database
 chromadb==1.5.9
 
-# --- Sparse Retrieval ---
+# =========================================================================
+# PHASE 2 — RETRIEVAL + HYBRID (Dense + sparse + reranking)
+# =========================================================================
+
+# Sparse retrieval (BM25)
 rank-bm25==0.2.2
 
-# --- Reranking ---
+# Dense retrieval (already in LangChain)
+langchain-core==1.4.8
+
+# Reranking
 cohere==5.20.0
 
-# --- LLM API (called directly — NOT via langchain-groq which conflicts) ---
+# =========================================================================
+# PHASE 2 — CONVERSATION (Multi-turn memory + output parsing)
+# =========================================================================
+
+# Already included above: langchain-core
+
+# =========================================================================
+# PHASE 3 — AGENTS (ReAct + tool orchestration)
+# =========================================================================
+
+# LLM API — Groq (called directly)
 groq==1.1.2
 
-# --- LangChain OpenAI (for LangGraph agent — uses Groq's OpenAI-compatible endpoint) ---
-# Does NOT conflict with groq>=1.0 the way langchain-groq does
-langchain-openai
+# LangChain wrapper for Groq (used by ReAct agent)
+langchain-groq>=0.0.1   # Use latest available version
 
-# --- Agents + Orchestration (Phase 3) ---
-langgraph
-sqlalchemy
+# Agent orchestration (LangGraph + ReAct)
+langgraph>=0.0.50        # Latest stable version (0.1.0 doesn't exist, use 0.0.69+ or newer)
+langchain-openai>=0.1.0   # Groq is OpenAI-compatible; LangGraph prefers this wrapper
 
-# --- API Layer (Phase 3) ---
-fastapi
-uvicorn[standard]
+# =========================================================================
+# PHASE 3 — DATABASE (SQL metrics + structured storage)
+# =========================================================================
 
-# --- Frontend ---
-streamlit==1.58.0
+# ORM for SQL database
+sqlalchemy>=2.0.0
 
-# --- Environment ---
-python-dotenv==1.0.1
+# SQLite support (built-in to Python, but listed for clarity)
+# sqlite3 (included in Python stdlib)
+
+# =========================================================================
+# PHASE 3 — API (FastAPI REST server)
+# =========================================================================
+
+# REST API framework
+fastapi>=0.100.0
+uvicorn[standard]>=0.30.0
+
+# Request validation
+pydantic>=2.0.0
+
+# =========================================================================
+# FRONTEND — STREAMLIT UI
+# =========================================================================
+
+streamlit>=1.30.0
+
+# =========================================================================
+# ENVIRONMENT & CONFIGURATION
+# =========================================================================
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# =========================================================================
+# EVALUATION (Phase 4 — optional, for QA testing)
+# =========================================================================
+
+# Uncomment when you reach Phase 4:
+# ragas>=0.1.0           # Retrieval evaluation framework
+# pandas>=1.5.0          # Data manipulation
+# datasets>=2.0.0        # HuggingFace datasets
+
+# =========================================================================
+# OPTIONAL DEPLOYMENTS (Phases 4-7 — uncomment as needed)
+# =========================================================================
+
+# Airflow (ingestion scheduling)
+# apache-airflow==2.7.0
+
+# Docker (deployment) — install via system package manager, not pip
+# kubernetes (k8s client) — optional for k8s deployments
+# k8s-client>=28.0.0
+
+# Monitoring (Prometheus/Grafana)
+# prometheus-client>=0.17.0
+
+# =========================================================================
+# DEVELOPMENT (Optional — for local testing/debugging)
+# =========================================================================
+
+# Uncomment for development:
+# pytest>=7.4.0          # Testing framework
+# black>=23.7.0          # Code formatting
+# ruff>=0.0.280          # Linting
+# ipython>=8.14.0        # Interactive shell
+# jupyter>=1.0.0         # Notebooks
+
+# =========================================================================
+# NOTES
+# =========================================================================
+# 
+# 1. GROQ_API_KEY: Required for all LLM calls
+#    Get free API key: https://console.groq.com/keys
+#    Add to .env: GROQ_API_KEY=gsk_...
+# 
+# 2. COHERE_API_KEY: Required for reranking (Phase 2)
+#    Optional if using Reranker fallback (pass-through)
+#    Get free API key: https://dashboard.cohere.com/api-keys
+#    Add to .env: COHERE_API_KEY=sk_...
+# 
+# 3. HuggingFace Cache: First embedding run downloads BAAI/bge model (~550MB)
+#    Download happens automatically to ~/.cache/huggingface/
+#    Set env var to use custom location: HF_HOME=/path/to/cache
+# 
+# 4. ChromaDB: Persists to data/embeddings/ (in .gitignore)
+#    Automatically created on first run
+# 
+# 5. SQLite: Persists to data/financial_metrics.db (in .gitignore)
+#    Automatically created by SQLAlchemy on first run
+# 
+# 6. GPU Support: If using CUDA or MPS (Apple Silicon):
+#    - Install PyTorch for your device: https://pytorch.org/get-started/locally/
+#    - Embedder auto-detects: CUDA > MPS > CPU
+#    - Sentence-transformers will use it automatically
+# 
+# 7. Version Pinning: Versions are fixed for reproducibility
+#    Bump carefully — some APIs may have breaking changes
+#    Test locally before merging to main
