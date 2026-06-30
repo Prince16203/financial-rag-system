@@ -1,7 +1,9 @@
 # ============================================================
 # Financial RAG System — Phase 1 + 2 + 3 Requirements
 # Python 3.13.1
-# Install: pip install -r requirements.txt
+# python >=3.13, <=3.14
+# Install:
+#     pip install -r requirements.txt
 # ============================================================
 
 # --- PDF Parsing ---

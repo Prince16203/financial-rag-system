@@ -203,6 +203,7 @@ def search_documents(question: str) -> str:
     Returns relevant text passages from the indexed documents.
     """
     try:
+        # Lazy imports to avoid circular dependencies
         from retrieval.hybrid_retriever import HybridRetriever
         from retrieval.reranker import Reranker
 
@@ -213,7 +214,10 @@ def search_documents(question: str) -> str:
         results = reranker.rerank(question, raw, top_n=3)
 
         if not results:
-            return "No relevant documents found for this question."
+            return (
+                "No relevant documents found for this question. "
+                "The indexed documents may not contain this information."
+            )
 
         parts = []
         for r in results:
@@ -221,12 +225,29 @@ def search_documents(question: str) -> str:
                 f"[{r['source']} | Page {r['page']}]\n{r['text'][:500]}"
             )
 
-        logger.info(f"search_documents: found {len(results)} chunks for '{question[:60]}'")
+        logger.info(
+            f"search_documents: found {len(results)} chunks for '{question[:60]}'"
+        )
         return "\n\n---\n\n".join(parts)
 
+    except ValueError as e:
+        # ChromaDB collection not found or empty
+        if "not found" in str(e).lower() or "empty" in str(e).lower():
+            return (
+                "No indexed documents available. "
+                "Please run the ingestion pipeline first: "
+                "`python -m ingestion.indexer`"
+            )
+        logger.error(f"search_documents ValueError: {e}")
+        return f"Document search error: {e}"
+    
     except Exception as e:
+        # Catch all other errors (timeouts, connection errors, etc.)
         logger.error(f"search_documents error: {e}")
-        return f"Document search failed: {e}"
+        return (
+            f"Document search failed: {e}. "
+            "This might be a temporary issue — try again in a moment."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -241,15 +262,34 @@ TOOLS = [query_metrics_db, calculator, search_documents]
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import sys
+    from utils.logging_config import setup_logging
+    setup_logging()
+
+    print("\n" + "="*60)
+    print("Testing tools.py")
+    print("="*60)
 
     print("\n--- Testing query_metrics_db ---")
-    result = query_metrics_db.invoke("Apple revenue 2024")
-    print(result)
+    try:
+        result = query_metrics_db.invoke({"query": "Apple revenue 2024"})
+        print(result)
+    except Exception as e:
+        print(f"Error (expected if DB empty): {e}")
 
     print("\n--- Testing calculator ---")
-    result = calculator.invoke("(14.52 - 13.34) / 13.34 * 100")
+    result = calculator.invoke({"expression": "(14.52 - 13.34) / 13.34 * 100"})
     print(f"Result: {result}%")
 
     print("\n--- Testing search_documents ---")
-    result = search_documents.invoke("What are Goldman Sachs main risk factors?")
-    print(result[:400])
+    try:
+        result = search_documents.invoke({
+            "question": "What are Goldman Sachs main risk factors?"
+        })
+        print(result[:400])
+    except Exception as e:
+        print(f"Error (expected if index empty): {e}")
+
+    print("\n" + "="*60)
+    print("All tools tested")
+    print("="*60)

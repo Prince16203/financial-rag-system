@@ -1,168 +1,272 @@
 """
-agents/sql_agent.py
+agents/react_agent.py
 
-Natural language → SQL chain over the financial_metrics SQLite table.
-Generates SQL via Groq LLM, validates it (SELECT-only), executes via
-SQLAlchemy, and returns formatted results.
+ReAct (Reasoning + Acting) agent using LangGraph.
+Orchestrates tools: query_metrics_db, calculator, search_documents.
 
-This is intentionally lightweight — no langchain-community dependency.
-For complex multi-table schemas, swap in create_sql_agent from
-langchain_community when that package becomes available.
+The agent decides which tool to use based on the question, iterates
+until it has a final answer, then returns the result.
 
 Usage:
-    from agents.sql_agent import SQLAgent
+    from agents.react_agent import ReactAgent
 
-    agent = SQLAgent()
-    result = agent.query("Show me all revenue metrics for Apple in 2024")
+    agent = ReactAgent()
+    result = agent.run("What is Apple's FICC revenue for 2024?")
     print(result)
 """
 
 import logging
-import re
-from typing import Optional
+from typing import Any, Optional
 
-from groq import Groq
-from sqlalchemy import text
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolNode
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_openai import ChatOpenAI
 
 import config
-from database.db import engine, get_session, init_db
-from database.models import FinancialMetric
+from agents.tools import TOOLS, query_metrics_db, calculator, search_documents
+from agents.sql_agent import SQLAgent
 
 logger = logging.getLogger(__name__)
 
-# Schema description injected into every prompt so the LLM knows the table
-SCHEMA = """
-Table: financial_metrics
-Columns:
-  id            INTEGER  PRIMARY KEY
-  company       TEXT     e.g. 'Apple', 'Goldman Sachs', 'JPMorgan', 'BlackRock', 'Microsoft'
-  metric_name   TEXT     e.g. 'revenue', 'net_income', 'ficc_revenue', 'equity_revenue',
-                              'investment_banking_revenue', 'total_assets', 'eps', 'var',
-                              'tier1_capital_ratio'
-  value         REAL     numeric value
-  unit          TEXT     e.g. 'billion USD', 'million USD', 'percent'
-  fiscal_year   INTEGER  4-digit year, may be NULL
-  source        TEXT     PDF filename
-  page          INTEGER  page number in source PDF
-  created_at    DATETIME
-"""
 
-SQL_PROMPT = """You are a SQLite expert. Write a SQL SELECT query for the question below.
+# ---------------------------------------------------------------------------
+# Agent State — what flows through the graph
+# ---------------------------------------------------------------------------
 
-{schema}
-
-Rules:
-- Write ONLY a single SELECT statement
-- No INSERT, UPDATE, DELETE, DROP, or any DDL
-- Use LOWER() for case-insensitive company/metric comparisons when helpful
-- Return ONLY the SQL query, no explanation, no markdown fences
-
-Question: {question}
-
-SQL:"""
+class AgentState:
+    """State passed through LangGraph nodes."""
+    
+    def __init__(self, messages: list[BaseMessage] = None):
+        self.messages = messages or []
+        self.final_answer = None
+        self.tool_calls = 0
+        self.max_iterations = 10
 
 
-class SQLAgent:
+# ---------------------------------------------------------------------------
+# ReAct Agent
+# ---------------------------------------------------------------------------
+
+class ReactAgent:
     """
-    Converts natural language questions into SQL queries over
-    the financial_metrics table and returns formatted results.
-
-    Args:
-        groq_client: Optional pre-built Groq client.
+    Financial question-answering agent using ReAct pattern.
+    
+    Flow:
+        1. User asks a question
+        2. Agent reads question + available tools
+        3. Agent decides: use a tool OR return final answer
+        4. If tool: execute it, add result to messages, loop
+        5. If final: format and return answer
+    
+    Tools available:
+        - query_metrics_db: Get structured metrics from SQLite
+        - calculator: Do arithmetic on numbers
+        - search_documents: Fall back to RAG for context
     """
-
-    def __init__(self, groq_client: Optional[Groq] = None):
-        if not config.GROQ_API_KEY:
+    
+    def __init__(
+        self,
+        groq_model: str = config.GROQ_MODEL,
+        groq_api_key: Optional[str] = None,
+        max_iterations: int = 10,
+    ):
+        self.groq_model = groq_model
+        self.groq_api_key = groq_api_key or config.GROQ_API_KEY
+        self.max_iterations = max_iterations
+        
+        if not self.groq_api_key:
             raise ValueError("GROQ_API_KEY not set in .env")
-
-        self.client = groq_client or Groq(api_key=config.GROQ_API_KEY)
-        init_db()
-        logger.info("SQLAgent ready")
-
-    def query(self, question: str) -> str:
+        
+        # LangChain's ChatOpenAI can call Groq via OpenAI-compatible endpoint
+        # (groq-sdk handles this natively, but LangGraph prefers ChatOpenAI)
+        self.llm = ChatOpenAI(
+            model=self.groq_model,
+            api_key=self.groq_api_key,
+            base_url="https://api.groq.com/openai/v1",
+            temperature=0.1,
+        )
+        
+        self.tools = TOOLS
+        self.sql_agent = SQLAgent()
+        
+        # Bind tools to LLM so it can call them
+        self.llm_with_tools = self.llm.bind_tools(self.tools)
+        
+        logger.info(
+            f"ReactAgent ready | "
+            f"model={self.groq_model} | "
+            f"tools={len(self.tools)} | "
+            f"max_iterations={max_iterations}"
+        )
+    
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
+    
+    def run(self, question: str) -> str:
         """
-        Answer a natural language question by generating and running SQL.
-
+        Run the agent on a question.
+        
         Args:
-            question: Plain English question about financial metrics.
-
+            question: Natural language financial question
+        
         Returns:
-            Formatted string of results, or an error message.
+            Final answer string
         """
-        sql = self._generate_sql(question)
-        if not sql:
-            return "Could not generate a valid SQL query for this question."
-
-        logger.info(f"Generated SQL: {sql}")
-        return self._execute_sql(sql, question)
-
-    def _generate_sql(self, question: str) -> Optional[str]:
-        """Ask Groq to write a SELECT query for this question."""
-        prompt = SQL_PROMPT.format(schema=SCHEMA, question=question)
-
-        try:
-            response = self.client.chat.completions.create(
-                model=config.GROQ_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-            )
-            raw = response.choices[0].message.content.strip()
-
-            # Strip markdown fences if model added them
-            raw = re.sub(r"```sql|```", "", raw).strip()
-
-            # Safety: only allow SELECT statements
-            if not raw.upper().lstrip().startswith("SELECT"):
-                logger.warning(f"Non-SELECT query rejected: {raw[:100]}")
-                return None
-
-            return raw
-
-        except Exception as e:
-            logger.error(f"SQL generation error: {e}")
-            return None
-
-    def _execute_sql(self, sql: str, question: str) -> str:
-        """Execute the SQL and format the results."""
-        try:
-            with engine.connect() as conn:
-                result = conn.execute(text(sql))
-                rows = result.fetchall()
-                columns = list(result.keys())
-
-            if not rows:
-                return (
-                    f"No results found for: '{question}'\n"
-                    f"SQL used: {sql}"
+        logger.info(f"Agent.run: '{question[:80]}'")
+        
+        messages = [HumanMessage(content=question)]
+        
+        for iteration in range(self.max_iterations):
+            logger.debug(f"Iteration {iteration + 1}/{self.max_iterations}")
+            
+            # Call LLM with tools bound
+            response = self.llm_with_tools.invoke(messages)
+            messages.append(response)
+            
+            # Check if LLM wants to stop
+            if not response.tool_calls:
+                # No more tool calls — this is the final answer
+                logger.info(f"Agent finished | iterations={iteration + 1}")
+                return response.content
+            
+            # Execute tool calls
+            tool_results = []
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_input = tool_call["args"]
+                
+                logger.debug(f"Calling tool: {tool_name} with {tool_input}")
+                
+                # Find and execute the tool
+                result = self._execute_tool(tool_name, tool_input)
+                
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_call["id"],
+                    "content": result,
+                })
+            
+            # Add tool results to messages
+            for tool_result in tool_results:
+                messages.append(
+                    ToolMessage(
+                        content=tool_result["content"],
+                        tool_call_id=tool_result["tool_use_id"],
+                    )
                 )
-
-            # Format as readable table
-            lines = [f"Results for: '{question}'", f"SQL: {sql}", ""]
-            header = " | ".join(columns)
-            lines.append(header)
-            lines.append("-" * len(header))
-
-            for row in rows[:20]:  # cap at 20 rows for readability
-                lines.append(" | ".join(str(v) for v in row))
-
-            if len(rows) > 20:
-                lines.append(f"... ({len(rows) - 20} more rows)")
-
-            logger.info(f"SQL query returned {len(rows)} rows")
-            return "\n".join(lines)
-
+        
+        # Max iterations reached
+        logger.warning(f"Agent hit max iterations ({self.max_iterations})")
+        return (
+            "I reached the maximum number of steps. "
+            "The question may be too complex or require data not in the system."
+        )
+    
+    # ------------------------------------------------------------------
+    # Tool execution
+    # ------------------------------------------------------------------
+    
+    def _execute_tool(self, tool_name: str, tool_input: dict) -> str:
+        """
+        Execute a single tool by name.
+        
+        Args:
+            tool_name: Name of the tool ("query_metrics_db", "calculator", etc.)
+            tool_input: Arguments dict
+        
+        Returns:
+            Tool output as string
+        """
+        try:
+            if tool_name == "query_metrics_db":
+                return query_metrics_db.invoke(tool_input.get("query", ""))
+            
+            elif tool_name == "calculator":
+                return calculator.invoke(tool_input.get("expression", ""))
+            
+            elif tool_name == "search_documents":
+                return search_documents.invoke(tool_input.get("question", ""))
+            
+            else:
+                return f"Unknown tool: {tool_name}"
+        
         except Exception as e:
-            logger.error(f"SQL execution error: {e}")
-            return f"SQL execution failed: {e}\nSQL: {sql}"
+            logger.error(f"Tool execution error ({tool_name}): {e}")
+            return f"Error executing {tool_name}: {e}"
+    
+    # ------------------------------------------------------------------
+    # Utility: multi-question mode
+    # ------------------------------------------------------------------
+    
+    def ask_multiple(self, questions: list[str]) -> dict[str, str]:
+        """
+        Run the agent on multiple questions (useful for benchmarking).
+        
+        Args:
+            questions: List of questions
+        
+        Returns:
+            Dict mapping each question to its answer
+        """
+        results = {}
+        for q in questions:
+            results[q] = self.run(q)
+        return results
 
+
+# ---------------------------------------------------------------------------
+# LangGraph Version (Alternative)
+# ---------------------------------------------------------------------------
+# If you prefer a more explicit state-based graph (optional):
+# from langgraph.graph import StateGraph
+# from typing import TypedDict, Annotated
+# import operator
+#
+# class GraphState(TypedDict):
+#     messages: Annotated[list[BaseMessage], operator.add]
+#
+# def agent_node(state: GraphState):
+#     response = llm_with_tools.invoke(state["messages"])
+#     return {"messages": [response]}
+#
+# def should_continue(state: GraphState):
+#     last = state["messages"][-1]
+#     return "end" if not last.tool_calls else "continue"
+#
+# graph = StateGraph(GraphState)
+# graph.add_node("agent", agent_node)
+# graph.add_node("tools", ToolNode(TOOLS))
+# graph.add_edge("tools", "agent")
+# graph.add_conditional_edges("agent", should_continue, ...)
+# graph.set_entry_point("agent")
+# graph.set_finish_point("agent")
+#
+# compiled = graph.compile()
+# result = compiled.invoke({"messages": [HumanMessage(content=question)]})
+
+
+# ---------------------------------------------------------------------------
+# Smoke test
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     import sys
     from utils.logging_config import setup_logging
     setup_logging()
-
-    question = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else \
-        "Show me all revenue metrics for Apple"
-
-    agent = SQLAgent()
-    print(agent.query(question))
+    
+    agent = ReactAgent()
+    
+    questions = [
+        "What is Apple's revenue for 2024?",
+        "Calculate 391.04 minus 365.78",
+        "What are Goldman Sachs' main risk factors?",
+    ] if len(sys.argv) == 1 else sys.argv[1:]
+    
+    for q in questions:
+        print(f"\n{'='*60}")
+        print(f"Question: {q}")
+        print(f"{'='*60}")
+        answer = agent.run(q)
+        print(f"Answer:\n{answer}")
