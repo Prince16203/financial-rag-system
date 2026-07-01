@@ -22,7 +22,6 @@ SYSTEM_PROMPT = (
     "explicitly — do not guess or use outside knowledge."
 )
 
-
 class RAGChain:
     def __init__(
         self,
@@ -122,3 +121,5 @@ if __name__ == "__main__":
     print(f"\n{'='*60}\nQuestion: {question}\n{'='*60}")
     print(f"\nAnswer:\n{result['answer']}")
     print(f"\nSources: {result['sources']}")
+
+    

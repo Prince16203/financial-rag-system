@@ -12,9 +12,9 @@ Tools:
 The agent reads each tool's docstring to decide which one to use.
 Docstrings are the most important part — write them clearly.
 """
-
 import logging
 import math
+import time
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -48,22 +48,23 @@ def query_metrics_db(query: str) -> str:
 
     Returns a formatted string of matching metrics from the database.
     """
+    # RATE LIMIT PROTECTOR: Pause to prevent hitting Groq's 429 TPM limit
+    time.sleep(1.5)
+    
     session = get_session()
     try:
         query_lower = query.lower()
-
-        # Build filters based on keywords in the query
         db_query = session.query(FinancialMetric)
 
-        # Company filter
+        # Company filter - Ordered longest to shortest to prevent substring overlap
         company_keywords = {
-            "apple":         "Apple",
-            "goldman":       "Goldman Sachs",
             "goldman sachs": "Goldman Sachs",
-            "jpmorgan":      "JPMorgan",
-            "jp morgan":     "JPMorgan",
             "blackrock":     "BlackRock",
             "microsoft":     "Microsoft",
+            "jpmorgan":      "JPMorgan",
+            "jp morgan":     "JPMorgan",
+            "goldman":       "Goldman Sachs",
+            "apple":         "Apple",
             "msft":          "Microsoft",
         }
 
@@ -78,21 +79,22 @@ def query_metrics_db(query: str) -> str:
                 FinancialMetric.company == matched_company
             )
 
-        # Metric type filter
+        # Metric type filter - Ordered longest to shortest to prevent substring overlap
         metric_keywords = {
-            "revenue":            "revenue",
-            "net income":         "net_income",
-            "ficc":               "ficc_revenue",
-            "equity revenue":     "equity_revenue",
-            "investment banking": "investment_banking_revenue",
-            "total assets":       "total_assets",
-            "assets":             "total_assets",
-            "eps":                "eps",
-            "earnings per share": "eps",
-            "var":                "var",
-            "value at risk":      "var",
-            "tier1":              "tier1_capital_ratio",
-            "tier 1":             "tier1_capital_ratio",
+            "investment banking revenue": "investment_banking_revenue",
+            "investment banking":         "investment_banking_revenue",
+            "earnings per share":         "eps",
+            "equity revenue":             "equity_revenue",
+            "value at risk":              "var",
+            "total assets":               "total_assets",
+            "net income":                 "net_income",
+            "tier 1":                     "tier1_capital_ratio",
+            "revenue":                    "revenue",
+            "assets":                     "total_assets",
+            "tier1":                      "tier1_capital_ratio",
+            "ficc":                       "ficc_revenue",
+            "eps":                        "eps",
+            "var":                        "var",
         }
 
         for keyword, metric_name in metric_keywords.items():
@@ -160,15 +162,21 @@ def calculator(expression: str) -> str:
     Returns the numeric result as a string.
     Do NOT include variable names — only numbers and operators.
     """
+    # RATE LIMIT PROTECTOR
+    time.sleep(1.5)
+    
     try:
+        # FIX: Remove commas so numbers like 47,830 don't evaluate as Python tuples
+        expression_clean = expression.replace(",", "")
+        
         # Only allow safe math operations — no exec, no imports
         allowed = set("0123456789+-*/()., ")
-        if not all(c in allowed for c in expression):
+        if not all(c in allowed for c in expression_clean):
             return "Error: only numeric expressions are allowed."
 
         # Safe evaluation using only math functions
-        result = eval(expression, {"__builtins__": {}}, {"math": math})
-        logger.info(f"calculator: {expression} = {result}")
+        result = eval(expression_clean, {"__builtins__": {}}, {"math": math})
+        logger.info(f"calculator: {expression_clean} = {result}")
         return str(round(float(result), 4))
 
     except ZeroDivisionError:
@@ -202,6 +210,9 @@ def search_documents(question: str) -> str:
 
     Returns relevant text passages from the indexed documents.
     """
+    # RATE LIMIT PROTECTOR
+    time.sleep(1.5)
+    
     try:
         from retrieval.hybrid_retriever import HybridRetriever
         from retrieval.reranker import Reranker
@@ -230,26 +241,15 @@ def search_documents(question: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool registry — used by react_agent.py
+# Tool registry
 # ---------------------------------------------------------------------------
 
 TOOLS = [query_metrics_db, calculator, search_documents]
 
 
-# ---------------------------------------------------------------------------
-# Smoke test
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
-
     print("\n--- Testing query_metrics_db ---")
-    result = query_metrics_db.invoke("Apple revenue 2024")
-    print(result)
+    print(query_metrics_db.invoke("Apple revenue 2024"))
 
     print("\n--- Testing calculator ---")
-    result = calculator.invoke("(14.52 - 13.34) / 13.34 * 100")
-    print(f"Result: {result}%")
-
-    print("\n--- Testing search_documents ---")
-    result = search_documents.invoke("What are Goldman Sachs main risk factors?")
-    print(result[:400])
+    print(f"Result: {calculator.invoke('(14.52 - 13.34) / 13.34 * 100')}%")

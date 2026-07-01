@@ -11,3 +11,4 @@ venv/
 .venv/
 .conda/
 environments.txt
+database_export.txt

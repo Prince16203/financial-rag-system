@@ -39,6 +39,7 @@ class FinancialMetric(Base):
     company       = Column(String(100), nullable=False)
     metric_name   = Column(String(100), nullable=False)
     value         = Column(Float, nullable=False)
+    value_normalized = Column(Float, nullable=True)
     unit          = Column(String(50), nullable=True)
     fiscal_year   = Column(Integer, nullable=True)
     source        = Column(String(200), nullable=False)
@@ -68,6 +69,7 @@ class FinancialMetric(Base):
             "company":     self.company,
             "metric_name": self.metric_name,
             "value":       self.value,
+            "value_normalized": self.value_normalized,
             "unit":        self.unit,
             "fiscal_year": self.fiscal_year,
             "source":      self.source,
