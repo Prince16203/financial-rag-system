@@ -18,7 +18,7 @@ from typing import Optional
 from chains.rag_chain import RAGChain
 from chains.output_parsers import ChatAnswer, SourceCitation, parse_chat_answer
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 import config
