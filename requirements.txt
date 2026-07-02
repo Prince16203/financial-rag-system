@@ -61,3 +61,4 @@ langchain-cohere
 sqlalchemy
 langgraph
 langchain-groq
+fastapi uvicorn
