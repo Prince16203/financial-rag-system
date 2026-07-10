@@ -62,3 +62,5 @@ sqlalchemy
 langgraph
 langchain-groq
 fastapi uvicorn
+
+ragas datasets langchain-huggingface
