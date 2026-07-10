@@ -1,0 +1,2 @@
+timestamp,total_questions,evaluated,skipped,retriever,mean_answer_relevancy,mean_context_precision,mean_context_recall
+20260710_140149,20,20,0,hybrid_bm25_dense_cohere_rerank,0.8505,0.9275,1.0
